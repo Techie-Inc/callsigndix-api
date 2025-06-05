@@ -1,0 +1,155 @@
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: api
+  namespace: callsigndix
+  labels:
+    app: api
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: api
+  template:
+    metadata:
+      labels:
+        app: api
+    spec:
+      containers:
+      - name: api
+        image: registry.promptxchange.com/callsigndix_api:latest
+        ports:
+        - containerPort: 8081
+        command: ["python", "main.py"]
+        env:
+        - name: API_BASE_URL
+          value: "http://twitch-tracker-service:8000"
+        - name: ENDPOINT_SUBSCRIBERS
+          valueFrom:
+            secretKeyRef:
+              name: api-config
+              key: ENDPOINT_SUBSCRIBERS
+        - name: ENDPOINT_FOLLOWERS
+          valueFrom:
+            secretKeyRef:
+              name: api-config
+              key: ENDPOINT_FOLLOWERS
+        - name: ENDPOINT_GIFT_SUBS
+          valueFrom:
+            secretKeyRef:
+              name: api-config
+              key: ENDPOINT_GIFT_SUBS
+        - name: POLLING_INTERVAL
+          value: "60"
+        - name: EXCLUDED_USERS
+          valueFrom:
+            secretKeyRef:
+              name: api-config
+              key: EXCLUDED_USERS
+        - name: DB_HOST
+          valueFrom:
+            secretKeyRef:
+              name: api-config
+              key: DB_HOST
+        - name: DB_PORT
+          valueFrom:
+            secretKeyRef:
+              name: api-config
+              key: DB_PORT
+        - name: DB_NAME
+          valueFrom:
+            secretKeyRef:
+              name: api-config
+              key: DB_NAME
+        - name: DB_USER
+          valueFrom:
+            secretKeyRef:
+              name: api-config
+              key: DB_USER
+        - name: DB_PASSWORD
+          valueFrom:
+            secretKeyRef:
+              name: api-config
+              key: DB_PASSWORD
+        - name: DB_SCHEMA
+          valueFrom:
+            secretKeyRef:
+              name: api-config
+              key: DB_SCHEMA
+        resources:
+          requests:
+            memory: "128Mi"
+            cpu: "100m"
+          limits:
+            memory: "256Mi"
+            cpu: "200m"
+        readinessProbe:
+          httpGet:
+            path: /health
+            port: 8081
+          initialDelaySeconds: 5
+          periodSeconds: 10
+        livenessProbe:
+          httpGet:
+            path: /health
+            port: 8081
+          initialDelaySeconds: 15
+          periodSeconds: 20
+      imagePullSecrets:
+      - name: docker-registry-auth
+---
+apiVersion: v1
+kind: Secret
+metadata:
+  name: docker-registry-auth
+  namespace: callsigndix
+type: kubernetes.io/dockerconfigjson
+data:
+  .dockerconfigjson: eyJhdXRocyI6eyJyZWdpc3RyeS5wcm9tcHR4Y2hhbmdlLmNvbSI6eyJ1c2VybmFtZSI6ImNpY2QiLCJwYXNzd29yZCI6IldoYXRQYXNzd29yZCIsImF1dGgiOiJZMmxqWkRwWGFHRjBVR0Z6YzNkdmNtUT0ifX19
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: api-service
+  namespace: callsigndix
+  annotations:
+    metallb.universe.tf/address-pool: default
+spec:
+  type: LoadBalancer
+  selector:
+    app: api
+  ports:
+    - protocol: TCP
+      port: 8081
+      targetPort: 8081
+---
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: api-ingress
+  namespace: callsigndix
+  annotations:
+    kubernetes.io/ingress.class: nginx
+    cert-manager.io/cluster-issuer: letsencrypt-prod
+    nginx.ingress.kubernetes.io/proxy-body-size: "0"
+    nginx.ingress.kubernetes.io/proxy-connect-timeout: "300"
+    nginx.ingress.kubernetes.io/proxy-read-timeout: "300"
+    nginx.ingress.kubernetes.io/proxy-send-timeout: "300"
+spec:
+  ingressClassName: nginx
+  rules:
+    - host: api.callsigndix.co.za
+      http:
+        paths:
+        - path: /
+          pathType: Prefix
+          backend:
+            service:
+              name: api-service
+              port:
+                number: 8081
+  tls:
+    - hosts:
+        - api.callsigndix.co.za
+      secretName: tls-2048-callsigndix 
